@@ -141,8 +141,9 @@ def run_bbox(verbose=False):
         score = bbox.get_score()
         with open("epoch_data.txt","a") as f:
         	f.write("Epoch: {}    Final Score: {}    Average Error: {}    Time to Run: {} min\n".format(epoch,score,error/steps,(time.time()-e_time)/60))
-        #reset box for next epoch
+        #save model parameters
         np.savez('model_cost.npz', *lasagne.layers.get_all_param_values(agent))
+        #reset box for next epoch
         if(epoch<epochs-1):
             bbox.reset_level()
 
