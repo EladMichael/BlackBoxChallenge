@@ -1,0 +1,98 @@
+import interface as bbox
+import theano
+import numpy as np
+import random as rand
+import theano.tensor as T
+import lasagne
+import time
+# By setting the first and second dimensions to None, we allow
+# arbitrary minibatch sizes with arbitrary sequence lengths.
+# The number of feature dimensions is 2
+l_in = lasagne.layers.InputLayer(shape=(None, None, 2))
+# This input will be used to provide the network with masks.
+# Masks are expected to be matrices of shape (n_batch, n_time_steps);
+# both of these dimensions are variable for us so we will use
+# an input shape of (None, None)
+l_mask = lasagne.layers.InputLayer(shape=(None, None))
+# Our LSTM will have 10 hidden/cell units
+N_HIDDEN = 10
+# All gates have initializers for the input-to-gate and hidden state-to-gate
+# weight matrices, the cell-to-gate weight vector, the bias vector, and the nonlinearity.
+# The convention is that gates use the standard sigmoid nonlinearity,
+# which is the default for the Gate class.
+gate_parameters = lasagne.layers.recurrent.Gate(
+	W_in=lasagne.init.Orthogonal(), W_hid=lasagne.init.Orthogonal(),
+	b=lasagne.init.Constant(0.))
+cell_parameters = lasagne.layers.recurrent.Gate(
+	W_in=lasagne.init.Orthogonal(), W_hid=lasagne.init.Orthogonal(),
+	# Setting W_cell to None denotes that no cell connection will be used.
+	W_cell=None, b=lasagne.init.Constant(0.),
+	nonlinearity=lasagne.nonlinearities.tanh)
+l_lstm = lasagne.layers.recurrent.LSTMLayer(
+	l_in, N_HIDDEN,
+	# We need to specify a separate input for masks
+	mask_input=l_mask,
+	# Here, we supply the gate parameters for each gate
+	ingate=gate_parameters, forgetgate=gate_parameters,
+	cell=cell_parameters, outgate=gate_parameters,
+	# We'll learn the initialization and use gradient clipping
+	learn_init=True, grad_clipping=100.)
+	# First, retrieve symbolic variables for the input shape
+n_batch, n_time_steps, n_features = l_in.input_var.shape
+# Now, squash the n_batch and n_time_steps dimensions
+l_reshape = lasagne.layers.ReshapeLayer(l_lstm, (-1, N_HIDDEN))
+# Now, we can apply feed-forward layers as usual.
+# We want the network to predict a single value, the sum, so we'll use a single unit.
+l_dense = lasagne.layers.DenseLayer(
+	l_reshape, num_units=1, nonlinearity=lasagne.nonlinearities.tanh)
+# Now, the shape will be n_batch*n_timesteps, 1. We can then reshape to
+# n_batch, n_timesteps to get a single value for each timstep from each sequence
+l_out = lasagne.layers.ReshapeLayer(l_dense, (n_batch, n_time_steps))
+# Symbolic variable for the target network output.
+# It will be of shape n_batch, because there's only 1 target value per sequence.
+target_values = T.vector('target_output')
+# This matrix will tell the network the length of each sequences.
+# The actual values will be supplied by the gen_data function.
+mask = T.matrix('mask')
+# lasagne.layers.get_output produces an expression for the output of the net
+network_output = lasagne.layers.get_output(l_out)
+# The value we care about is the final value produced for each sequence
+# so we simply slice it out.
+predicted_values = network_output[:, -1]
+# Our cost will be mean-squared error
+cost = T.mean((predicted_values - target_values)**2)
+# Retrieve all parameters from the network
+all_params = lasagne.layers.get_all_params(l_out)
+# Compute adam updates for training
+updates = lasagne.updates.adam(cost, all_params)
+# Theano functions for training and computing cost
+train = theano.function(
+	[l_in.input_var, target_values, l_mask.input_var],
+	cost, updates=updates)
+compute_cost = theano.function(
+	[l_in.input_var, target_values, l_mask.input_var], cost)
+
+n_features = n_actions = max_time = -1
+
+def prepare_bbox():
+    global n_f, n_a, max_time
+ 
+    if bbox.is_level_loaded():
+        bbox.reset_level()
+    else:
+        bbox.load_level("../levels/train_level.data", verbose=1)
+        n_f = bbox.get_num_of_features()
+        n_a = bbox.get_num_of_actions()
+        max_time = bbox.get_max_time()
+
+
+def run_bbox(verbose=False):
+    has_next = 1
+    prepare_bbox()
+    while has_next:
+        state = bbox.get_state()
+    bbox.finish(verbose=1)
+ 
+ 
+if __name__ == "__main__":
+    run_bbox(verbose=0)
